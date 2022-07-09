@@ -25,6 +25,11 @@ enum ALARM_MENU_ITEMS {
     MENU_TOGGLE_ALARM
 };
 
+enum SELECTED_TIME_UNIT {
+    SELECTED_HOUR,
+    SELECTED_MINUTE,
+    SELECTED_SECOND
+};
 void menu();
 
 void set_selected_item(int item);

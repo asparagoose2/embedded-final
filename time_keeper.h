@@ -61,6 +61,7 @@ void set_alarm(unsigned long time_in_seconds);
 void disable_alarm();
 void toggle_alarm_on_off();
 void set_off_alarm();
+void init_clock_display(unsigned long time_in_seconds, CLOCK_DISPLAY_MODE mode);
 // TODO Insert appropriate #include <>
 
 // TODO Insert C++ class definitions if appropriate

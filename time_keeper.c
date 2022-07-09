@@ -30,6 +30,7 @@ uint16_t FONT_COLOR = 0xffff;
 uint16_t BACKGROUND_COLOR = 0x0;
 
 const Point CENTER_POINT = {SCREEN_SIZE / 2,SCREEN_SIZE / 2};
+int curr_clock_format = 12;
 bool isAM = true;
 
 
@@ -54,10 +55,11 @@ void draw_digital_clock(unsigned long time_in_seconds)
     char prev_time_str[9] = {0};
     Datetime datetime;
     epoc_to_datetime(time_in_seconds, &datetime);
-    sprintf(curr_time_str, "%02d:%02d:%02d", datetime.tm_hour,datetime.tm_min,datetime.tm_sec);
+    sprintf(curr_time_str, "%02d:%02d:%02d", datetime.tm_hour % curr_clock_format,datetime.tm_min,datetime.tm_sec);
     epoc_to_datetime(time_in_seconds - 1, &datetime);
-    sprintf(prev_time_str, "%02d:%02d:%02d", datetime.tm_hour,datetime.tm_min,datetime.tm_sec);
-    oledC_DrawString(5, 45, 2, 2, prev_time_str, BACKGROUND_COLOR);
+    sprintf(prev_time_str, "%02d:%02d:%02d", datetime.tm_hour % curr_clock_format,datetime.tm_min,datetime.tm_sec);
+    oledC_DrawRectangle(0, 45, 95, 60, BACKGROUND_COLOR);
+//    oledC_DrawString(5, 45, 2, 2, prev_time_str, BACKGROUND_COLOR);
     oledC_DrawString(5, 45, 2, 2, curr_time_str, FONT_COLOR);
 
 }
@@ -77,18 +79,23 @@ void draw_corner_clock(unsigned long time_in_seconds)
 
 void set_am_pm(AM_PM am_pm)
 {
-    if(am_pm == AM) 
-    {
-        oledC_DrawString(0, 85, 1, 1, "PM", BACKGROUND_COLOR);
-        isAM = true;
-        oledC_DrawString(0, 85, 1, 1, "AM", FONT_COLOR);
-    } 
-    else 
-    {
-        oledC_DrawString(0, 85, 1, 1, "AM", BACKGROUND_COLOR);
-        isAM = false;
-        oledC_DrawString(0, 85, 1, 1, "PM", FONT_COLOR);
-    }
+    oledC_DrawString(0, 85, 1, 1, "AM", BACKGROUND_COLOR);
+    oledC_DrawString(0, 85, 1, 1, "PM", BACKGROUND_COLOR);
+    oledC_DrawString(0, 85, 1, 1, am_pm == AM ? "AM" : "PM", FONT_COLOR);
+    isAM = am_pm == AM;
+    
+//    if(am_pm == AM) 
+//    {
+//        oledC_DrawString(0, 85, 1, 1, "PM", BACKGROUND_COLOR);
+//        isAM = true;
+//        oledC_DrawString(0, 85, 1, 1, "AM", FONT_COLOR);
+//    } 
+//    else 
+//    {
+//        oledC_DrawString(0, 85, 1, 1, "AM", BACKGROUND_COLOR);
+//        isAM = false;
+//        oledC_DrawString(0, 85, 1, 1, "PM", FONT_COLOR);
+//    }
 }
 
 void toggle_am_pm() 
@@ -163,6 +170,29 @@ void draw_full_analog_clock(unsigned long time_in_seconds)
     
 }
 
+
+void init_clock_display(unsigned long time_in_seconds, CLOCK_DISPLAY_MODE mode)
+{
+    if(mode == ANALOG_CLOCK_DISPLAY)
+    {
+        Datetime datetime;
+        epoc_to_datetime(time_in_seconds, &datetime);
+        set_am_pm(datetime.tm_hour > 11 ? PM : AM);
+        draw_watch_face();
+        draw_full_analog_clock(time_in_seconds);
+    }
+    else if(mode == DIGITAL_CLOCK_DISPLAY)
+    {
+        if(curr_clock_format == 12)
+        {
+            Datetime datetime;
+            epoc_to_datetime(time_in_seconds, &datetime);
+            set_am_pm(datetime.tm_hour > 11 ? PM : AM);
+        }
+    }
+}
+    
+
 void toggle_alarm_on_off()
 {
     
@@ -172,7 +202,7 @@ void draw_clock(unsigned long time_in_seconds, CLOCK_DISPLAY_MODE mode)
 {
     Datetime datetime;
     epoc_to_datetime(time_in_seconds, &datetime);
-    if(datetime.tm_hour % 12 == 0 && datetime.tm_min == 0 && datetime.tm_sec == 0)
+    if(datetime.tm_hour % 12 == 0 && datetime.tm_min == 0 && datetime.tm_sec == 0 && !(mode == DIGITAL_CLOCK_DISPLAY && curr_clock_format == 24))
     {
         set_am_pm(datetime.tm_hour > 11 ? PM : AM);
     }
@@ -191,5 +221,5 @@ void draw_clock(unsigned long time_in_seconds, CLOCK_DISPLAY_MODE mode)
 
 void set_clock_format(CLOCK_FORMAT format)
 {
-    
+    curr_clock_format = format == HRS_12 ? 12 : 24;
 }
