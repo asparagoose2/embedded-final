@@ -10,10 +10,18 @@
 #include "time_keeper.h"
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include "LabC5_Accel_BitBang.X/oledDriver/oledC_shapes.h"
 #include "LabC5_Accel_BitBang.X/oledDriver/oledC.h"
 #include "date_time.h"
+#include "main_header.h"
 
-extern current_time_in_seconds;
+extern unsigned long current_time_in_seconds;
+extern WorkingMode working_mode;
+extern uint16_t FONT_COLOR;
+extern bool is_alarm_enabled;
+extern unsigned long alarm_time_in_seconds;
+
 
 int menu_mode = MAIN_MENU;
 int selected_item = MENU_SET_TIME;
@@ -22,17 +30,22 @@ bool selected_changed = false;
 int prev_selected_item = 0;
 int prev_selected_sub_item = 0;
 
+const int DATA_IN_MONTHS[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+
 const char* menu_items_literals[] = {"Display Mode", "12H/24H","Set Time","Set Date","Alarm"};
-const char* disp_mode_items_literals[] = {"Analog", "Digital"};
+const char* disp_mode_items_literals[] = {"Analog", "Digital","Ring Digital","Rings"};
 const char* format_items_literals[] = {"12H", "24H"};
 const char* alarm_items_literals[] = {"Set Alarm", "Alarm On/Off"};
 const char** menus_arr[] = {disp_mode_items_literals,format_items_literals,NULL,NULL,alarm_items_literals};
+
+Datetime selected_date;
 
 unsigned long selected_time;
 int curr_selected_time_unit = 0;
 bool selected_time_changed = false;
 
 
+// select the menu item 
 void set_selected_item(int item)
 {
     if(item != selected_item)
@@ -40,32 +53,47 @@ void set_selected_item(int item)
         prev_selected_item = selected_item;
         selected_item = item % MENU_ITEMS_COUNT;
         selected_changed = true;
-    }
-    
+    }   
 }
 
-void set_selected_sub_item(int item)
+// select a sub menu item
+void set_selected_sub_item(int item, int item_count)
 {
     if(item != selected_sub_item)
     {
         prev_selected_sub_item = selected_sub_item;
-        selected_sub_item = item % 2;
+        selected_sub_item = item % item_count;
         selected_changed = true;
     }
 }
-void inc_selected_item()
+
+// draw indication which time unit is being edited (white line under the number)
+void draw_selected_time_unit(int selected, bool isDate)
 {
-    prev_selected_item = selected_item;
-    selected_item = (selected_item + 1) % MENU_ITEMS_COUNT;
-    selected_changed = true;
+    if(isDate)
+    {
+        int width = selected == 2 ? 22 : 11;
+        oledC_DrawRectangle(5, 65, 95, 67, 0x0);
+        oledC_DrawRectangle(7 + selected*30, 65, 7 + width + selected*29, 67, 0xffff);
+    }
+    else 
+    {
+        oledC_DrawRectangle(5, 65, 95, 67, 0x0);
+        oledC_DrawRectangle(7 + selected*32, 65, 25 + selected*32, 67, 0xffff);
+    }
+    
 }
 
-void draw_selected_time_unit(int selected)
+// draw the date that is being selected
+void draw_selected_date() 
 {
-    oledC_DrawRectangle(5, 65, 95, 67, 0x0);
-    oledC_DrawRectangle(7 + selected*32, 65, 25 + selected*32, 67, 0xffff);
+    char str[15] = {0};
+    sprintf(str,"%02d / %02d / %04d",selected_date.tm_mday,selected_date.tm_mon+1,selected_date.tm_year + 1900);
+    oledC_DrawRectangle(0, 53, 95, 60, 0x0);
+    oledC_DrawString(7, 53, 1, 1, str, FONT_COLOR);
 }
 
+// left button logic
 void select_item()
 {
     oledC_clearScreen();
@@ -75,22 +103,24 @@ void select_item()
         {
             case(MENU_SET_TIME):
                 menu_mode = SET_TIME_MENU;
-                selected_time = 0;
+                selected_time = current_time_in_seconds;
                 selected_time_changed = true;
                 set_clock_format(HRS_24);
-                draw_selected_time_unit(curr_selected_time_unit);                
+                draw_selected_time_unit(curr_selected_time_unit,false);                
                 break;
             case(MENU_SET_DATE):
                 menu_mode = SET_DATE_MENU;
+                epoc_to_datetime(current_time_in_seconds, &selected_date);
+                selected_time_changed = true;
+                draw_selected_time_unit(curr_selected_time_unit,true);                
+                break;
+            case(MENU_DISP_MODE):
+                menu_mode = CLOCK_FORMAT_MENU;
                 break;
             default:    
                 menu_mode = SELECTED_MENU;
                 break;
         }
-    }
-    else if(ALARM_SUB_MENU == menu_mode)
-    {
-        
     }
     else if(menu_mode == SELECTED_MENU)
     {
@@ -104,23 +134,42 @@ void select_item()
                 break;
             
             case(MENU_ALARM):
-                if(prev_selected_sub_item == 0)
+                if(selected_sub_item == 0)
                 {
-                    menu_mode = SET_TIME_MENU;
+                    menu_mode = SET_ALARM_MENU;
+                    selected_time = alarm_time_in_seconds;
+                    selected_time_changed = true;
+                    set_clock_format(HRS_24);
+                    draw_selected_time_unit(curr_selected_time_unit,false);
                 }
-                else if(prev_selected_sub_item == 1)
+                else if(selected_sub_item == 1)
                 {
-                    toggle_alarm_on_off();
+                    is_alarm_enabled = !is_alarm_enabled;
                 }
-                break;
-            
+                break;        
         }
     }
     else if(menu_mode == SET_TIME_MENU)
     {
         selected_time_changed = true;
         curr_selected_time_unit = (curr_selected_time_unit + 1) % 3;
-        draw_selected_time_unit(curr_selected_time_unit);
+        draw_selected_time_unit(curr_selected_time_unit, false);
+    }
+    else if(menu_mode == SET_DATE_MENU)
+    {
+        selected_time_changed = true;
+        curr_selected_time_unit = (curr_selected_time_unit + 1) % 3;
+        draw_selected_time_unit(curr_selected_time_unit,true);
+    }
+    else if(menu_mode == SET_ALARM_MENU)
+    {
+        selected_time_changed = true;
+        curr_selected_time_unit = (curr_selected_time_unit + 1) % 3;
+        draw_selected_time_unit(curr_selected_time_unit, false);
+    }
+    else if(menu_mode == CLOCK_FORMAT_MENU)
+    {
+        set_clock_display(selected_sub_item);
     }
 }
 
@@ -129,13 +178,16 @@ void left_button_pressed()
     select_item();
     
 }
+
+// right button logic
 void right_button_pressed()
 {
     if(menu_mode == SELECTED_MENU)
     {
+        oledC_clearScreen();
         menu_mode = MAIN_MENU;
     }
-    else if(menu_mode == SET_TIME_MENU)
+    else if(menu_mode == SET_TIME_MENU )
     {
         oledC_clearScreen();
         Datetime original, selected_dt;
@@ -144,24 +196,57 @@ void right_button_pressed()
         original.tm_hour = selected_dt.tm_hour;
         original.tm_min = selected_dt.tm_min;
         original.tm_sec = selected_dt.tm_sec;
-//        set_time(datetime_to_epoc(&original));
-        set_time(selected_time);
-        menu_mode = MAIN_MENU;
-        
+        set_time(datetime_to_epoc(&original));
+        menu_mode = MAIN_MENU;    
+    } 
+    else if(menu_mode == SET_ALARM_MENU )
+    {
+        oledC_clearScreen();
+        set_alarm(selected_time);
+        menu_mode = MAIN_MENU;    
+    } 
+    else if(menu_mode == MAIN_MENU) 
+    {
+        oledC_clearScreen();
+        set_working_mode(CLOCK_MODE);
+    }
+    else if(menu_mode == SET_DATE_MENU )
+    {
+        oledC_clearScreen();
+        Datetime original;
+        epoc_to_datetime(current_time_in_seconds, &original);
+        original.tm_mday = selected_date.tm_mday;
+        original.tm_mon = selected_date.tm_mon;
+        original.tm_year = selected_date.tm_year;
+        set_time(datetime_to_epoc(&original));
+//        set_time(selected_time);
+        menu_mode = MAIN_MENU;   
+    }
+    else if(menu_mode == CLOCK_FORMAT_MENU)
+    {
+        oledC_clearScreen();
+        menu_mode = MAIN_MENU;   
     }
     
 }
+
+
 void pot_changed_value(int pot_val)
 {
     if(menu_mode == SELECTED_MENU)
     {
-        set_selected_sub_item(pot_val/512);
+        set_selected_sub_item(pot_val/512,2);
+
+    }
+    else if(menu_mode == CLOCK_FORMAT_MENU)
+    {
+        set_selected_sub_item(pot_val/256,4);
     }
     else if(menu_mode == MAIN_MENU)
     {
         set_selected_item(pot_val/205);
     }
-    else if(SET_TIME_MENU == menu_mode)
+    else if(SET_TIME_MENU == menu_mode || SET_ALARM_MENU == menu_mode)
     {
         Datetime selected_datetime;
         epoc_to_datetime(selected_time,&selected_datetime);
@@ -185,8 +270,41 @@ void pot_changed_value(int pot_val)
             selected_time_changed = true;
         }
     }
+    else if(SET_DATE_MENU == menu_mode)
+    {
+        Datetime new_date;
+        new_date.tm_mday = selected_date.tm_mday;
+        new_date.tm_mon = selected_date.tm_mon;
+        new_date.tm_year = selected_date.tm_year;
+        if(curr_selected_time_unit == SELECTED_HOUR) 
+        {
+            new_date.tm_mday = pot_val/(1024/DATA_IN_MONTHS[new_date.tm_mon] + 1)+1;
+        } 
+        else if(curr_selected_time_unit == SELECTED_MINUTE)  
+        {
+            new_date.tm_mon = pot_val/86;
+            
+        }
+        else if(curr_selected_time_unit == SELECTED_SECOND)  
+        {
+            new_date.tm_year = pot_val/9 + 70;
+        }
+        if(selected_date.tm_mday == new_date.tm_mday ||selected_date.tm_mon == new_date.tm_mon || selected_date.tm_year == new_date.tm_year)
+        {
+            if(new_date.tm_mday > 28 && new_date.tm_mon == 1)
+                new_date.tm_mday = 28;
+            if(new_date.tm_mday >  DATA_IN_MONTHS[new_date.tm_mon])
+                new_date.tm_mday = 30;
+            selected_date.tm_mday = new_date.tm_mday;
+            selected_date.tm_mon = new_date.tm_mon;
+            selected_date.tm_year = new_date.tm_year;
+            
+            selected_time_changed = true;
+        }
+    }
 }
 
+// menu logic
 void menu()
 {
     if(menu_mode == SELECTED_MENU)
@@ -205,7 +323,7 @@ void menu()
             oledC_DrawString(12, 18 + 15*i, 1, 1, menus_arr[selected_item][i], 0xffff);
         }
     }
-    else if( menu_mode == MAIN_MENU)
+    else if(menu_mode == MAIN_MENU)
     {
         for(int i = 0; i < MENU_ITEMS_COUNT; i++)
         {
@@ -221,13 +339,39 @@ void menu()
             oledC_DrawString(12, 18 + 15*i, 1, 1, menu_items_literals[i], 0xffff);
         }
     }
-    else if(SET_TIME_MENU == menu_mode)
+    else if(SET_TIME_MENU == menu_mode || SET_ALARM_MENU == menu_mode)
     {
         oledC_DrawString(0, 18, 1, 1, selected_item == MENU_SET_TIME ? "Set Time:" : "Set Alarm:", 0xffff);
         if(selected_time_changed)
         {
-            draw_digital_clock(selected_time);
+            draw_digital_clock(selected_time, false);
             selected_time_changed = false;
         }
     }
+    else if(SET_DATE_MENU == menu_mode)
+    {
+        oledC_DrawString(0, 18, 1, 1,  "Set Date:", 0xffff);
+        if(selected_time_changed)
+        {
+            draw_selected_date();
+            selected_time_changed = false;
+        }
+    }
+    else if(CLOCK_FORMAT_MENU == menu_mode)
+    {
+        for(int i = 0; i < 4; i++)
+        {
+            if(selected_changed)
+            {
+                selected_changed = false;
+                oledC_DrawCircle( 4 , 22 + 15*prev_selected_sub_item, 3, 0x0);
+            }
+            if(selected_sub_item == i)
+            {
+                oledC_DrawCircle( 4 , 22 + 15*i, 3, 0xffff);
+            }
+            oledC_DrawString(12, 18 + 15*i, 1, 1, menus_arr[selected_item][i], 0xffff);
+        }
+    }
+    
 }
